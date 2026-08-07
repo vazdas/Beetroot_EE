@@ -5,6 +5,8 @@
 
 int speed = 200;
 
+void PoliceLight();
+
 void setup() {
   Serial.begin(115200);
   delay(2000);
@@ -13,6 +15,10 @@ void setup() {
 }
 
 void loop() {
+  PoliceLight();
+}
+
+void PoliceLight(){
   digitalWrite(LED_BLUE,HIGH);
   digitalWrite(LED_RED,LOW);
   delay(speed);
