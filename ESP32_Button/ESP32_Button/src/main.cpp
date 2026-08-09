@@ -8,7 +8,7 @@ void setup() {
   delay(1000);
 
   pinMode(LED_OUT, OUTPUT);
-  pinMode(BUTTON_IN, INPUT);
+  pinMode(BUTTON_IN, INPUT_PULLUP);
   digitalWrite(LED_OUT, LOW);
 }
 
