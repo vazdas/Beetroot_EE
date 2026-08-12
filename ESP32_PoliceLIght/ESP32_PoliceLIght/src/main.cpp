@@ -1,9 +1,9 @@
 #include <Arduino.h>
 
-#define LED_RED 15
-#define LED_BLUE 9
+#define LED_RED 16
+#define LED_BLUE 15
 
-int speed = 200;
+uint32_t speed = 1000; //the speed of the police light
 
 void PoliceLight();
 
