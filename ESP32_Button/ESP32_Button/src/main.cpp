@@ -5,10 +5,9 @@
 #define LED_RED   15
 #define LED_GREEN 16
 
-uint32_t blinkDelay = 400; //delay for LED blinking
+uint32_t currentBlinkSpeed = 400; //delay for LED blinking
 
-void LedBlinking(uint32_t delayMs); //function for LED blinking
-
+void LedBlinking(uint32_t speedMs); //function for LED blinking
 
 
 void setup() {
@@ -23,46 +22,43 @@ void setup() {
 }
 
 
-
 void loop() {
   //read the button's state
   int currentExtState = digitalRead(EXT_BUTTON);
   int currentBootState = digitalRead(BOOT_BUTTON);
 
 
-  //below blocks compare the state of the buttons
-  if (currentExtState == HIGH && currentBootState == LOW) {
-    blinkDelay = 400; //delay for normal blinking
-    Serial.println("Blinking mode: NORMAL");
-    delay(50);        //delay to avoid debounce
+  //speed up the led blinking
+  if (currentExtState == HIGH) {
+    if (currentBlinkSpeed >= 100) {
+      currentBlinkSpeed -= 50; //decreasing delay for faster blinking
+      Serial.printf("SPEED UP: current speed - %d\n", currentBlinkSpeed);
+      delay(50);        //delay to avoid debounce
+    }
+  }  
+  
+  //slowing down the led blinking
+  if (currentBootState == LOW) {
+    if (currentBlinkSpeed <= 1000) {
+      currentBlinkSpeed += 50; //increasing delay for slower blinking
+      Serial.printf("SLOW DOWN: current speed - %d\n", currentBlinkSpeed);
+      delay(50);        //delay to avoid debounce
+    }
   }
 
-
-  if (currentExtState == HIGH && currentBootState == HIGH) {
-    blinkDelay = 50; //delay for fast blinking
-    Serial.println("Blinking mode: FAST");
-    delay(50);        //delay to avoid debounce
-  }
-  
-  
-  if (currentBootState == LOW && currentExtState == LOW) {
-    blinkDelay = 700; //delay for slow blinking
-    Serial.println("Blinking mode: SLOW");
-    delay(50);        //delay to avoid debounce
-  }
 
   //the main logic
-  LedBlinking(blinkDelay);
+  LedBlinking(currentBlinkSpeed);
 }
 
 
 
-void LedBlinking(uint32_t delayMs) {
+void LedBlinking(uint32_t speedMs) {
   digitalWrite(LED_RED, HIGH);
   digitalWrite(LED_GREEN, LOW);
-  delay(delayMs);
+  delay(speedMs);
 
   digitalWrite(LED_RED, LOW);
   digitalWrite(LED_GREEN, HIGH);
-  delay(delayMs);
+  delay(speedMs);
 }
