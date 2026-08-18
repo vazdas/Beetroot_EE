@@ -1,43 +1,45 @@
 #include <Arduino.h>
 
-// Використовуємо пін ADC1 (наприклад, GPIO1)
-#define LDR_PIN 1 
+#define ADC_PIN    4
 
-const float ADC_MAX = 4095.0;     // 12 біт = 2^12 - 1
-const float U_REF_MV = 3100.0;    // 3.1 В = 3100 мВ
+#define VREF_MV           3100.0  // Uref in mV
+#define ADC_RESOLUTION    4095.0  // ADCmax
+
+// Voltage calculations
+float getCalcVoltage(int raw) {
+  float voltage = 0.0f;
+  voltage = ((float)raw / ADC_RESOLUTION) * VREF_MV;
+  return voltage;  
+}
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  analogReadResolution(12); // 12 bits (0..4095)
+  pinMode(ADC_PIN, INPUT);
 
-  // Встановлюємо 12-бітну роздільну здатність АЦП (0..4095)
-  analogReadResolution(12);
-
-  // Красивий заголовок таблиці в серійну консоль
-  Serial.println("\n=============================================================");
-  Serial.println("RAW\t| U_calc (mV)\t| U_meas (mV)\t| Error (%)");
-  Serial.println("=============================================================");
+  // Print the values to the Serial Monitor
+  Serial.println("\nRAW | U_calc (mV) | U_meas (mV) | Error (%)");
 }
 
 void loop() {
-  // 1. Зчитування сирих даних (RAW)
-  int raw = analogRead(LDR_PIN);
+  // Read the RAW value
+  int rawValue = analogRead(ADC_PIN);
 
-  // 2. Обчислення напруги за формулою зі знімка
-  float u_calc = ((float)raw / ADC_MAX) * U_REF_MV;
+  // Calculating the voltage
+  float uCalc = getCalcVoltage(rawValue);
 
-  // 3. Зчитування напруги через вбудований заводський калібрувальник ESP32
-  uint32_t u_measured = analogReadMilliVolts(LDR_PIN);
+  // Read the calibrated voltage
+  uint32_t uMeas = analogReadMilliVolts(ADC_PIN);
 
-  // 4. Розрахунок відносної похибки
-  float error_pct = 0.0;
-  if (u_measured > 0) {
-    error_pct = (abs(u_calc - u_measured) / (float)u_measured) * 100.0;
+  // Calculating the error
+  float errorPct = 0.0;
+  if (uMeas > 0) {
+    errorPct = (fabs(uCalc - (float)uMeas) / (float)uMeas) * 100.0;
   }
 
-  // 5. Вивід структурованої таблиці
-  Serial.printf("%d\t| %.2f\t\t| %d\t\t| %.2f%%\n", raw, u_calc, u_measured, error_pct);
+  // Printing the results to the Serial Monitor
+  Serial.printf("%4d | %11.2f | %11u | %8.2f%%\n", rawValue, uCalc, uMeas, errorPct);
 
-  // Затримка 100 мс за вимогою завдання
-  delay(100); 
+  // Get the Raw value each 100ms
+  delay(100);
 }
