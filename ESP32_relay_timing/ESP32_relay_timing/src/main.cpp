@@ -1,69 +1,47 @@
 #include <Arduino.h>
-#include <atomic>
-#include <OneButton.h>
-#include <esp_task_wdt.h>
+#include "buttonFSM.h"
 
-#define BTN_START_TIMER_IN 15
-#define TIMER_LED_OUT 16
-#define WDT_TIMEOUT_S 10
+#define BUTTON_PIN 			15
+#define LED_PIN 			16
+#define DEBOUNCE_DELAY 		50
 
-std::atomic<uint32_t> isrCounter(0);
-volatile bool timerFired = false;
+typedef struct{
+	int presseCount;
+	int releaseCount;
+} Counter_t;
 
-hw_timer_t *timer = NULL;
-OneButton startButton(BTN_START_TIMER_IN, true, true);
-uint32_t timeDuration = 0;
+static Button_FSM_t buttonFsm;
+static Counter_t counter = {0, 0};
 
-// Функція переривання (ISR)
-void IRAM_ATTR onTimer() {
-	// Операції ++ та присвоєння для atomic є безпечними (атомарними)
-	isrCounter.fetch_add(1, std::memory_order_relaxed);
-	timerFired = true;
+void onButtonPress(void* arg) {
+	Counter_t* counter = (Counter_t*)arg;
+	counter->presseCount++;
+	Serial.print("Button pressed: ");
+	Serial.println(counter->presseCount);
+	digitalWrite(LED_PIN, HIGH);
 }
 
-void startTimer() {
-	digitalWrite(TIMER_LED_OUT, HIGH);
-	// Старт таймера
-	timerWrite(timer, 0);
-	timerAlarmWrite(timer, 1000000, false);
-	timerAlarmEnable(timer);
-	// Запис поточного часу
-	timeDuration = millis();
+void onButtonRelease(void* arg) {
+	Counter_t* counter = (Counter_t*)arg;
+	counter->releaseCount++;
+	Serial.print("Button released: ");
+	Serial.println(counter->releaseCount);
+	digitalWrite(LED_PIN, LOW);
 }
 
 void setup() {
 	Serial.begin(115200);
-	//enableLoopWDT();
+	pinMode(BUTTON_PIN, INPUT_PULLUP);
+	pinMode(LED_PIN, OUTPUT);
+	digitalWrite(LED_PIN, LOW);
 
-	pinMode(TIMER_LED_OUT, OUTPUT);
-	digitalWrite(TIMER_LED_OUT, LOW);
-
-	startButton.attachPress(startTimer);
-
-	// Ініціалізація таймера (ESP32-S3)
-	// divider = 80: 80 МГц / 80 = 1 МГц (1 tick = 1 мкс)
-	timer = timerBegin(0, 80, true);
-
-	// Прив'язка функції переривання
-	timerAttachInterrupt(timer, &onTimer, true);
-
-	// Ініціалізація Watchdog Timer (WDT)
-	esp_task_wdt_init(WDT_TIMEOUT_S, false); // true - reset
-	esp_task_wdt_add(NULL);
-
-	Serial.println("Press the button to start the timer...");
+	if (Button_FSM_Init(&buttonFsm, BUTTON_PIN, DEBOUNCE_DELAY, onButtonPress, onButtonRelease, &counter) != 0) {
+		Serial.println("Failed to initialize button FSM");
+	}
 }
 
 void loop() {
-	startButton.tick();
+	Button_FSM_Update(&buttonFsm);
 
-	if (timerFired) {
-		timerFired = false;
-		digitalWrite(TIMER_LED_OUT, LOW);
-		const uint32_t elapsedTime = millis() - timeDuration;
-		Serial.printf("Timer finished %u times. Elapsed time: %lu ms\n",
-			isrCounter.load(std::memory_order_relaxed), elapsedTime);
-
-		esp_task_wdt_reset();
-	}
+	delay(1);
 }
