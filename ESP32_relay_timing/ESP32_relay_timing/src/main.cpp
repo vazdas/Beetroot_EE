@@ -1,93 +1,69 @@
 #include <Arduino.h>
+#include <atomic>
+#include <OneButton.h>
+#include <esp_task_wdt.h>
 
-struct Config {
-    static constexpr uint8_t RELAY_CTRL_PIN  = 15;
-    static constexpr uint8_t RELAY_SENSE_PIN = 16;
-    static constexpr uint8_t TOTAL_TESTS     = 10;
-    static constexpr uint32_t SETTLE_MS      = 500;
-};
+#define BTN_START_TIMER_IN 15
+#define TIMER_LED_OUT 16
+#define WDT_TIMEOUT_S 10
 
-volatile uint32_t g_contactTimeMicros = 0;
-volatile bool g_contactTriggered = false;
+std::atomic<uint32_t> isrCounter(0);
+volatile bool timerFired = false;
 
-//Debounce in ISR
-void IRAM_ATTR relayIsr() {
-    if (!g_contactTriggered) {
-        g_contactTimeMicros = micros();
-        g_contactTriggered = true; 
-    }
+hw_timer_t *timer = NULL;
+OneButton startButton(BTN_START_TIMER_IN, true, true);
+uint32_t timeDuration = 0;
+
+// Функція переривання (ISR)
+void IRAM_ATTR onTimer() {
+	// Операції ++ та присвоєння для atomic є безпечними (атомарними)
+	isrCounter.fetch_add(1, std::memory_order_relaxed);
+	timerFired = true;
+}
+
+void startTimer() {
+	digitalWrite(TIMER_LED_OUT, HIGH);
+	// Старт таймера
+	timerWrite(timer, 0);
+	timerAlarmWrite(timer, 1000000, false);
+	timerAlarmEnable(timer);
+	// Запис поточного часу
+	timeDuration = millis();
 }
 
 void setup() {
-    Serial.begin(115200);
-    delay(1000);
+	Serial.begin(115200);
+	//enableLoopWDT();
 
-    pinMode(Config::RELAY_CTRL_PIN, OUTPUT);
-    digitalWrite(Config::RELAY_CTRL_PIN, HIGH);
+	pinMode(TIMER_LED_OUT, OUTPUT);
+	digitalWrite(TIMER_LED_OUT, LOW);
 
-    pinMode(Config::RELAY_SENSE_PIN, INPUT_PULLUP);
+	startButton.attachPress(startTimer);
 
-    Serial.println("  №  |      ON delay (ms) |           OFF delay (ms)");
-    Serial.println("-------------------------------------------------------");
+	// Ініціалізація таймера (ESP32-S3)
+	// divider = 80: 80 МГц / 80 = 1 МГц (1 tick = 1 мкс)
+	timer = timerBegin(0, 80, true);
+
+	// Прив'язка функції переривання
+	timerAttachInterrupt(timer, &onTimer, true);
+
+	// Ініціалізація Watchdog Timer (WDT)
+	esp_task_wdt_init(WDT_TIMEOUT_S, false); // true - reset
+	esp_task_wdt_add(NULL);
+
+	Serial.println("Press the button to start the timer...");
 }
 
 void loop() {
-    static uint8_t testCount = 0;
-    static uint32_t onDelays[Config::TOTAL_TESTS];
-    static uint32_t offDelays[Config::TOTAL_TESTS];
+	startButton.tick();
 
-    if (testCount < Config::TOTAL_TESTS) {
-        delay(Config::SETTLE_MS);
+	if (timerFired) {
+		timerFired = false;
+		digitalWrite(TIMER_LED_OUT, LOW);
+		const uint32_t elapsedTime = millis() - timeDuration;
+		Serial.printf("Timer finished %u times. Elapsed time: %lu ms\n",
+			isrCounter.load(std::memory_order_relaxed), elapsedTime);
 
-        //MEASUREMENT OF SWITCH-ON TIME
-        attachInterrupt(digitalPinToInterrupt(Config::RELAY_SENSE_PIN), relayIsr, FALLING);
-        g_contactTriggered = false;
-
-        const uint32_t startOnMicros = micros();
-        digitalWrite(Config::RELAY_CTRL_PIN, LOW); //Sending thye signal to turn On
-
-        uint32_t timeoutMs = millis();
-        while (!g_contactTriggered && (millis() - timeoutMs < 500)) {}
-
-        const uint32_t onDelayMicros = g_contactTimeMicros - startOnMicros;
-        onDelays[testCount] = onDelayMicros;
-
-        delay(Config::SETTLE_MS);
-
-        //MEASUREMENT OF SWITCH-OFF TIME
-        attachInterrupt(digitalPinToInterrupt(Config::RELAY_SENSE_PIN), relayIsr, RISING);
-        g_contactTriggered = false;
-
-        const uint32_t startOffMicros = micros();
-        digitalWrite(Config::RELAY_CTRL_PIN, HIGH); //Sending the signal to turn Off
-
-        timeoutMs = millis();
-        while (!g_contactTriggered && (millis() - timeoutMs < 500)) {}
-
-        const uint32_t offDelayMicros = g_contactTimeMicros - startOffMicros;
-        offDelays[testCount] = offDelayMicros;
-
-        detachInterrupt(digitalPinToInterrupt(Config::RELAY_SENSE_PIN));
-
-        //Output the current values
-        Serial.printf(" %2d  | %18.2f | %17.2f\n", testCount + 1, onDelayMicros / 1000.0f, offDelayMicros / 1000.0f);
-
-        testCount++;
-
-        //CALCULATION OF THE AVERAGE VALUE
-        if (testCount == Config::TOTAL_TESTS) {
-            uint64_t sumOn = 0, sumOff = 0;
-            for (uint8_t i = 0; i < Config::TOTAL_TESTS; ++i) {
-                sumOn += onDelays[i];
-                sumOff += offDelays[i];
-            }
-
-            const float avgOnMs = (float)sumOn / Config::TOTAL_TESTS / 1000.0f;
-            const float avgOffMs = (float)sumOff / Config::TOTAL_TESTS / 1000.0f;
-
-            Serial.println("-------------------------------------------------------");
-            Serial.printf("AVERAGE: %14.2f ms | %17.2f ms\n", avgOnMs, avgOffMs);
-            Serial.println("=======================================================");
-        }
-    }
+		esp_task_wdt_reset();
+	}
 }
