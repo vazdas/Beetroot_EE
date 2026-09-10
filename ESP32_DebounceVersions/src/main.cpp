@@ -1,13 +1,14 @@
 #include <Arduino.h>
 
 #define BUTTON_PIN 15
+#define DEBOUNCE_TIME_MS 50
 
-volatile uint32_t g_interruptCount = 0;
-volatile bool g_isrFlag = false;
+volatile uint32_t g_rawInterruptCount = 0;
+volatile bool g_buttonFlag = false;
 
 void IRAM_ATTR buttonIsr() {
-    g_interruptCount++;
-    g_isrFlag = true;
+    g_rawInterruptCount++;
+    g_buttonFlag = true;
 }
 
 void setup() {
@@ -17,8 +18,18 @@ void setup() {
 }
 
 void loop() {
-    if (g_isrFlag) {
-        g_isrFlag = false;
-        Serial.printf("Raw Interrupt! Total ISR calls: %u\n", g_interruptCount);
+    static uint32_t lastValidPressTime = 0;
+    static uint32_t validPressCount = 0;
+
+    if (g_buttonFlag) {
+        g_buttonFlag = false;
+        const uint32_t now = millis();
+
+        if (now - lastValidPressTime >= DEBOUNCE_TIME_MS) {
+            lastValidPressTime = now;
+            validPressCount++;
+            Serial.printf("Valid Press #%u | (Raw ISR Count: %u)\n", 
+                          validPressCount, g_rawInterruptCount);
+        }
     }
 }
